@@ -125,21 +125,15 @@ bot.onText(/\/start/, async (msg) => {
     keyboard.push([{ text: '📮 Postal', callback_data: 'service_pos' }]);
     keyboard.push([{ text: '📍 Meet Up', callback_data: 'service_meet' }]);
     
-    // Réseaux sociaux
+    // Réseaux sociaux (un par ligne)
     const socialNetworks = await db.getSocialNetworks();
     if (socialNetworks.length > 0) {
-        const socialButtons = [];
-        const buttonsPerRow = config.social_buttons_per_row || 2;
-        
-        for (let i = 0; i < socialNetworks.length; i += buttonsPerRow) {
-            const row = socialNetworks.slice(i, i + buttonsPerRow).map(social => ({
+        for (const social of socialNetworks) {
+            keyboard.push([{
                 text: `${social.emoji} ${social.name}`,
                 url: social.url
-            }));
-            socialButtons.push(row);
+            }]);
         }
-        
-        keyboard.push(...socialButtons);
     }
     
     // Catalogue supprimé
@@ -244,21 +238,15 @@ bot.on('callback_query', async (query) => {
             keyboard.push([{ text: '📮 Postal', callback_data: 'service_pos' }]);
             keyboard.push([{ text: '📍 Meet Up', callback_data: 'service_meet' }]);
             
-            // Réseaux sociaux
+            // Réseaux sociaux (un par ligne)
             const socialNetworks = await db.getSocialNetworks();
             if (socialNetworks.length > 0) {
-                const socialButtons = [];
-                const buttonsPerRow = config.social_buttons_per_row || 2;
-                
-                for (let i = 0; i < socialNetworks.length; i += buttonsPerRow) {
-                    const row = socialNetworks.slice(i, i + buttonsPerRow).map(social => ({
+                for (const social of socialNetworks) {
+                    keyboard.push([{
                         text: `${social.emoji} ${social.name}`,
                         url: social.url
-                    }));
-                    socialButtons.push(row);
+                    }]);
                 }
-                
-                keyboard.push(...socialButtons);
             }
             
             // Info
@@ -273,10 +261,10 @@ bot.on('callback_query', async (query) => {
             break;
             
         case 'info':
-            const config = await db.getConfig();
+            const configInfo = await db.getConfig();
             await sendOrEditMessage(
                 chatId, 
-                config.info_text || 'ℹ️ Informations sur notre service',
+                configInfo.info_text || 'ℹ️ Informations sur notre service',
                 [[{ text: '🔙 Retour', callback_data: 'back_to_start' }]],
                 'HTML',
                 messageId
@@ -526,8 +514,23 @@ async function showAdminManagement(chatId, userId, messageId) {
     const admins = await db.getAdmins();
     
     let text = '👥 <b>Gestion des Administrateurs</b>\n\n';
-    for (const admin of admins) {
-        text += `• ${admin.first_name || 'Admin'} (@${admin.username || admin.user_id})\n`;
+    
+    if (admins.length === 0) {
+        text += '<i>Aucun administrateur trouvé</i>\n';
+    } else {
+        text += '<b>Administrateurs actuels :</b>\n';
+        for (const admin of admins) {
+            const isMainAdmin = admin.user_id.toString() === process.env.ADMIN_ID;
+            const adminMark = isMainAdmin ? ' 👑' : '';
+            text += `• ${admin.first_name || 'Admin'} `;
+            if (admin.username) {
+                text += `(@${admin.username})`;
+            } else {
+                text += `(ID: ${admin.user_id})`;
+            }
+            text += adminMark + '\n';
+        }
+        text += '\n<i>👑 = Administrateur principal (non supprimable)</i>';
     }
     
     const keyboard = [
@@ -1195,7 +1198,23 @@ async function showSubmenuContent(chatId, userId, submenuId, messageId) {
         return;
     }
     
-    const keyboard = [[{ text: '🔙 Retour', callback_data: `service_${submenu.service_type.slice(0, 3)}` }]];
+    // Déterminer le bon callback pour le retour
+    let serviceCallback;
+    switch(submenu.service_type) {
+        case 'livraison':
+            serviceCallback = 'service_liv';
+            break;
+        case 'postal':
+            serviceCallback = 'service_pos';
+            break;
+        case 'meetup':
+            serviceCallback = 'service_meet';
+            break;
+        default:
+            serviceCallback = 'back_to_start';
+    }
+    
+    const keyboard = [[{ text: '🔙 Retour', callback_data: serviceCallback }]];
     const state = userStates.get(userId) || {};
     
     if (submenu.image) {
