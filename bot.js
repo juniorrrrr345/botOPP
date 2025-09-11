@@ -90,6 +90,13 @@ bot.onText(/\/start/, async (msg) => {
     const userId = msg.from.id;
     const firstName = msg.from.first_name || 'utilisateur';
 
+    // Supprimer le message de commande
+    try {
+        await bot.deleteMessage(chatId, msg.message_id);
+    } catch (error) {
+        // Ignorer l'erreur si le message ne peut pas être supprimé
+    }
+
     // Enregistrer/mettre à jour l'utilisateur
     await db.upsertUser(userId, msg.from.username, msg.from.first_name, msg.from.last_name);
     
@@ -135,10 +142,7 @@ bot.onText(/\/start/, async (msg) => {
         keyboard.push(...socialButtons);
     }
     
-    // Catalogue
-    if (config.catalogue_url) {
-        keyboard.push([{ text: '📚 Catalogue', url: config.catalogue_url }]);
-    }
+    // Catalogue supprimé
     
     // Info
     keyboard.push([{ text: 'ℹ️ Info', callback_data: 'info' }]);
@@ -159,6 +163,13 @@ bot.onText(/\/start/, async (msg) => {
 bot.onText(/\/admin/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
+    
+    // Supprimer le message de commande
+    try {
+        await bot.deleteMessage(chatId, msg.message_id);
+    } catch (error) {
+        // Ignorer l'erreur si le message ne peut pas être supprimé
+    }
     
     if (!await isAdmin(userId)) {
         await bot.sendMessage(chatId, '❌ Accès refusé. Cette commande est réservée aux administrateurs.');
@@ -212,11 +223,53 @@ bot.on('callback_query', async (query) => {
     switch(data) {
         // Menu principal
         case 'back_to_start':
-            await bot.emit('message', { 
-                chat: { id: chatId }, 
-                from: query.from, 
-                text: '/start' 
-            });
+            // Récupérer la configuration
+            const config = await db.getConfig();
+            const firstName = query.from.first_name || 'utilisateur';
+            const welcomeText = config.welcome_message.replace('{firstname}', firstName);
+            
+            // Créer le clavier principal
+            const keyboard = [];
+            
+            // Mini App toujours en première ligne
+            if (config.mini_app_url) {
+                keyboard.push([{ 
+                    text: config.mini_app_text || '🎮 Ouvrir l\'application', 
+                    web_app: { url: config.mini_app_url } 
+                }]);
+            }
+            
+            // Services sur des lignes séparées
+            keyboard.push([{ text: '🚚 Livraison', callback_data: 'service_liv' }]);
+            keyboard.push([{ text: '📮 Postal', callback_data: 'service_pos' }]);
+            keyboard.push([{ text: '📍 Meet Up', callback_data: 'service_meet' }]);
+            
+            // Réseaux sociaux
+            const socialNetworks = await db.getSocialNetworks();
+            if (socialNetworks.length > 0) {
+                const socialButtons = [];
+                const buttonsPerRow = config.social_buttons_per_row || 2;
+                
+                for (let i = 0; i < socialNetworks.length; i += buttonsPerRow) {
+                    const row = socialNetworks.slice(i, i + buttonsPerRow).map(social => ({
+                        text: `${social.emoji} ${social.name}`,
+                        url: social.url
+                    }));
+                    socialButtons.push(row);
+                }
+                
+                keyboard.push(...socialButtons);
+            }
+            
+            // Info
+            keyboard.push([{ text: 'ℹ️ Info', callback_data: 'info' }]);
+            
+            // Envoyer le message
+            if (config.welcome_image) {
+                await sendOrEditPhoto(chatId, config.welcome_image, welcomeText, keyboard, messageId);
+            } else {
+                await sendOrEditMessage(chatId, welcomeText, keyboard, 'HTML', messageId);
+            }
             break;
             
         case 'info':
@@ -408,7 +461,7 @@ async function showService(chatId, userId, serviceType, messageId) {
         }]);
     }
     
-    keyboard.push([{ text: '🔙 Retour', callback_data: 'back_to_start' }]);
+    keyboard.push([{ text: '🔙 Retour au menu', callback_data: 'back_to_start' }]);
     
     const state = userStates.get(userId) || {};
     
@@ -456,7 +509,6 @@ async function showSocialMenu(chatId, userId, messageId) {
     }
     
     keyboard.push([{ text: '➕ Ajouter un réseau', callback_data: 'add_social' }]);
-    keyboard.push([{ text: '🔄 Réorganiser', callback_data: 'reorder_social' }]);
     keyboard.push([{ text: '🔙 Retour', callback_data: 'admin_back' }]);
     
     await sendOrEditMessage(
