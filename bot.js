@@ -232,6 +232,20 @@ bot.onText(/\/admin/, async (msg) => {
     await showAdminMenu(chatId, userId);
 });
 
+// Commande /config - Afficher la configuration actuelle
+bot.onText(/\/config/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    
+    if (!await isAdmin(userId)) {
+        await bot.sendMessage(chatId, '❌ Accès refusé. Cette commande est réservée aux administrateurs.');
+        return;
+    }
+    
+    await db.logEvent('config_view', userId);
+    await showCurrentConfig(chatId, userId);
+});
+
 // Afficher le menu admin
 async function showAdminMenu(chatId, userId, messageId = null) {
     const config = await db.getConfig();
