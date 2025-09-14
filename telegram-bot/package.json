@@ -1,0 +1,38 @@
+{
+  "name": "lanation-telegram-bot",
+  "version": "2.0.0",
+  "description": "Bot Telegram pour LA NATION DU LAIT avec gestion des services et formatage HTML",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "nodemon bot.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "lanation",
+    "livraison",
+    "postal",
+    "meetup"
+  ],
+  "author": "LANATION",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "node-telegram-bot-api": "^0.66.0",
+    "mongoose": "^8.0.3",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/juniorrrrr345/LANATIONV2.git",
+    "directory": "telegram-bot"
+  }
+}

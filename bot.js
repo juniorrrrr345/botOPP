@@ -1,6 +1,16 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
-const { D1Database } = require('./db');
+// Choisir la base de données selon l'environnement
+let Database;
+if (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_DATABASE_ID && process.env.CLOUDFLARE_API_TOKEN) {
+    console.log('🌐 Utilisation de Cloudflare D1');
+    const { CloudflareD1Database } = require('./db-cloudflare-d1');
+    Database = CloudflareD1Database;
+} else {
+    console.log('💾 Utilisation de SQLite');
+    const { SQLiteDatabase } = require('./db-sqlite');
+    Database = SQLiteDatabase;
+}
 
 // Vérifier les variables d'environnement
 if (!process.env.BOT_TOKEN) {
@@ -15,7 +25,18 @@ if (!process.env.ADMIN_ID) {
 
 // Initialiser le bot
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
-const db = new D1Database();
+
+// Initialiser la base de données
+let db;
+if (process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_DATABASE_ID && process.env.CLOUDFLARE_API_TOKEN) {
+    db = new Database(
+        process.env.CLOUDFLARE_ACCOUNT_ID,
+        process.env.CLOUDFLARE_DATABASE_ID,
+        process.env.CLOUDFLARE_API_TOKEN
+    );
+} else {
+    db = new Database();
+}
 
 // États des utilisateurs pour gérer les conversations
 const userStates = new Map();
@@ -26,6 +47,30 @@ async function isAdmin(userId) {
     
     const user = await db.getUser(userId);
     return user?.is_admin === 1;
+}
+
+// Fonction pour échapper le HTML et permettre le formatage
+function escapeHtml(text) {
+    if (!text) return '';
+    // Échapper les caractères HTML dangereux mais permettre le formatage
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// Fonction pour formater le texte avec HTML
+function formatText(text) {
+    if (!text) return '';
+    
+    // Support pour le formatage HTML de Telegram
+    // <b>gras</b>, <i>italique</i>, <u>souligné</u>, <s>barré</s>, <code>code</code>, <pre>préformaté</pre>
+    // <a href="url">lien</a>, <tg-spoiler>spoiler</tg-spoiler>
+    
+    // Échapper les caractères HTML dangereux mais préserver le formatage
+    return escapeHtml(text);
 }
 
 // Fonction pour envoyer ou éditer un message
@@ -47,7 +92,7 @@ async function sendOrEditMessage(chatId, text, keyboard = null, parseMode = 'HTM
         }
     } catch (error) {
         // Si l'édition échoue, envoyer un nouveau message
-        console.log('Édition échouée, envoi d\'un nouveau message');
+        console.log('Édition échouée, envoi d\'un nouveau message:', error.message);
     }
 
     // Envoyer un nouveau message
@@ -187,6 +232,20 @@ bot.onText(/\/admin/, async (msg) => {
     await showAdminMenu(chatId, userId);
 });
 
+// Commande /config - Afficher la configuration actuelle
+bot.onText(/\/config/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    
+    if (!await isAdmin(userId)) {
+        await bot.sendMessage(chatId, '❌ Accès refusé. Cette commande est réservée aux administrateurs.');
+        return;
+    }
+    
+    await db.logEvent('config_view', userId);
+    await showCurrentConfig(chatId, userId);
+});
+
 // Afficher le menu admin
 async function showAdminMenu(chatId, userId, messageId = null) {
     const config = await db.getConfig();
@@ -299,7 +358,11 @@ bot.on('callback_query', async (query) => {
                     chatId,
                     '✏️ <b>Modifier le message d\'accueil</b>\n\n' +
                     'Envoyez le nouveau message.\n' +
-                    'Utilisez {firstname} pour inclure le prénom.',
+                    'Utilisez {firstname} pour inclure le prénom.\n\n' +
+                    '<i>💡 Formatage HTML supporté :</i>\n' +
+                    '<b>gras</b>, <i>italique</i>, <u>souligné</u>\n' +
+                    '<s>barré</s>, <code>code</code>, <pre>préformaté</pre>\n' +
+                    '<a href="https://example.com">lien</a>',
                     [[{ text: '❌ Annuler', callback_data: 'admin_back' }]],
                     'HTML',
                     messageId
@@ -829,11 +892,13 @@ bot.on('message', async (msg) => {
     
     // Gestion du message d'accueil
     if (state.state === 'waiting_welcome') {
-        await db.updateConfig({ welcome_message: msg.text });
+        // Formater le texte pour supporter HTML
+        const formattedText = formatText(msg.text);
+        await db.updateConfig({ welcome_message: formattedText });
         delete state.state;
         await sendOrEditMessage(
             chatId,
-            '✅ Message d\'accueil mis à jour !',
+            '✅ Message d\'accueil mis à jour !\n\n<i>Le formatage HTML est supporté :</i>\n<b>gras</b>, <i>italique</i>, <u>souligné</u>, <s>barré</s>, <code>code</code>',
             [[{ text: '🔙 Retour', callback_data: 'admin_back' }]],
             'HTML',
             state.messageId
@@ -870,11 +935,13 @@ bot.on('message', async (msg) => {
         const field = serviceType === 'liv' ? 'livraison_text' :
                      serviceType === 'pos' ? 'postal_text' : 'meetup_text';
         
-        await db.updateConfig({ [field]: msg.text });
+        // Formater le texte pour supporter HTML
+        const formattedText = formatText(msg.text);
+        await db.updateConfig({ [field]: formattedText });
         delete state.state;
         await sendOrEditMessage(
             chatId,
-            '✅ Texte du service mis à jour !',
+            '✅ Texte du service mis à jour !\n\n<i>Le formatage HTML est supporté :</i>\n<b>gras</b>, <i>italique</i>, <u>souligné</u>, <s>barré</s>, <code>code</code>',
             [[{ text: '🔙 Retour', callback_data: `edit_service_${serviceType}` }]],
             'HTML',
             state.messageId
@@ -971,14 +1038,16 @@ bot.on('message', async (msg) => {
     else if (state.state === 'adding_submenu_text') {
         const fullServiceType = state.serviceType === 'liv' ? 'livraison' : 
                                state.serviceType === 'pos' ? 'postal' : 'meetup';
-        await db.addSubmenu(fullServiceType, state.submenuName, msg.text, null);
+        // Formater le texte pour supporter HTML
+        const formattedText = formatText(msg.text);
+        await db.addSubmenu(fullServiceType, state.submenuName, formattedText, null);
         delete state.state;
         delete state.submenuName;
         delete state.serviceType;
         
         await sendOrEditMessage(
             chatId,
-            '✅ Sous-menu ajouté !',
+            '✅ Sous-menu ajouté !\n\n<i>Le formatage HTML est supporté :</i>\n<b>gras</b>, <i>italique</i>, <u>souligné</u>, <s>barré</s>, <code>code</code>',
             [[{ text: '🔙 Retour', callback_data: 'admin_services' }]],
             'HTML',
             state.messageId
@@ -1079,7 +1148,9 @@ bot.on('message', async (msg) => {
         if (field === 'name') {
             await db.updateSubmenu(submenuId, { name: msg.text });
         } else if (field === 'text') {
-            await db.updateSubmenu(submenuId, { text: msg.text });
+            // Formater le texte pour supporter HTML
+            const formattedText = formatText(msg.text);
+            await db.updateSubmenu(submenuId, { text: formattedText });
         }
         
         delete state.state;
@@ -1088,7 +1159,7 @@ bot.on('message', async (msg) => {
         
         await sendOrEditMessage(
             chatId,
-            '✅ Sous-menu mis à jour !',
+            '✅ Sous-menu mis à jour !\n\n<i>Le formatage HTML est supporté :</i>\n<b>gras</b>, <i>italique</i>, <u>souligné</u>, <s>barré</s>, <code>code</code>',
             [[{ text: '🔙 Retour', callback_data: 'admin_services' }]],
             'HTML',
             state.messageId
